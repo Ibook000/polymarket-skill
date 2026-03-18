@@ -1,0 +1,6 @@
+{
+  "max_retries": 3,
+  "retry_delay": 1,
+  "timeout": 10,
+  "default_limit": 5
+}
