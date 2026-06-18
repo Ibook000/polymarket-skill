@@ -1,0 +1,11 @@
+# Unified Polymarket Python SDK (beta)
+polymarket-client>=0.1.0b8
+# Legacy CLOB client (used by passive_liquidity bot internals)
+py-clob-client==0.34.6
+py-clob-client-v2>=1.0.1
+websockets>=12.0
+python-dotenv>=1.0.0
+# Web UI
+fastapi>=0.115
+uvicorn[standard]>=0.34
+requests>=2.31
