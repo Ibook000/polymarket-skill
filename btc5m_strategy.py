@@ -75,10 +75,18 @@ def now_beijing() -> datetime:
     return datetime.now(timezone.utc) + timedelta(hours=8)
 
 
+_log_sink = None  # 可选：Dashboard 挂钩，接收日志回调
+
+
 def log(msg: str, level: str = "INFO"):
     """带时间戳的日志"""
     ts = now_beijing().strftime("%Y-%m-%d %H:%M:%S")
     print(f"[{ts}] [{level}] {msg}")
+    if _log_sink:
+        try:
+            _log_sink({"type": "log", "level": level, "msg": msg, "ts": ts})
+        except Exception:
+            pass
 
 
 def current_slug() -> str:
@@ -86,6 +94,28 @@ def current_slug() -> str:
     ts = int(time.time())
     interval_ts = (ts // Config.INTERVAL_SEC) * Config.INTERVAL_SEC
     return f"{Config.SLUG_PREFIX}-{interval_ts}"
+
+
+def get_period_end_price(interval_start_ts: int) -> Optional[float]:
+    """获取某个5分钟周期的收盘价（K线close）"""
+    try:
+        resp = requests.get(
+            Config.BINANCE_KLINE_URL,
+            params={
+                "symbol": "BTCUSDT",
+                "interval": "5m",
+                "startTime": interval_start_ts * 1000,
+                "limit": 1,
+            },
+            timeout=10,
+        )
+        resp.raise_for_status()
+        klines = resp.json()
+        if klines:
+            return float(klines[0][4])  # close price
+    except Exception as e:
+        log(f"获取周期收盘价失败: {e}", "ERROR")
+    return None
 
 
 # ======================== BTC价格 ========================
@@ -194,21 +224,21 @@ class MarketData:
             return None, None, None
 
     @staticmethod
-    def get_last_trade_price(token_id: str) -> Optional[float]:
-        """获取最新成交价（实时赔率）— REST API"""
+    def get_midpoint(token_id: str) -> Optional[float]:
+        """获取订单簿中间价（实时赔率）— 比 last-trade-price 更实时"""
         if not token_id:
             return None
         try:
             resp = requests.get(
-                f"{MarketData.CLOB_HOST}/last-trade-price",
+                f"{MarketData.CLOB_HOST}/midpoint",
                 params={"token_id": token_id},
                 timeout=5,
             )
             if resp.ok:
                 data = resp.json()
-                return float(data.get("price", 0))
+                return float(data.get("mid", 0))
         except Exception as e:
-            log(f"获取最新成交价失败: {e}", "WARN")
+            log(f"获取中间价失败: {e}", "WARN")
         return None
 
 
@@ -294,7 +324,7 @@ class Trader:
 class Strategy:
     """策略主引擎"""
 
-    def __init__(self, dry_run: bool = False, once: bool = False):
+    def __init__(self, dry_run: bool = False, once: bool = False, on_event=None):
         self.dry_run = dry_run
         self.once = once
         self.btc = BTCTracker()
@@ -304,6 +334,9 @@ class Strategy:
         self.token_yes: Optional[str] = None
         self.token_no: Optional[str] = None
         self.signal_given_this_period = False
+        self.on_event = on_event  # 可选回调: on_event(type: str, data: dict)
+        self.signal_history: list[dict] = []  # 信号审核记录
+        self._prev_signal: Optional[dict] = None  # 上一周期待审核信号
 
     async def init(self):
         """初始化"""
@@ -328,19 +361,31 @@ class Strategy:
             log("无法获取BTC价格，退出", "ERROR")
             sys.exit(1)
 
-    def update_market(self):
+    async def update_market(self):
         """更新当前周期的市场"""
         slug = current_slug()
 
         # 新周期开始
         if slug != self.current_slug:
+            # ── 审核上一周期的信号 ──────────────────────
+            if self._prev_signal:
+                await self._audit_prev_signal()
+
+            old_slug = self.current_slug
             self.current_slug = slug
             self.signal_given_this_period = False
             self.btc.period_start_price = None  # 重置周期起始价
 
             log(f"--- 新周期开始: {slug} ---")
 
-            market, token_yes, token_no = MarketData.load_market(slug)
+            # 通知 Dashboard 新周期开始（前端重置图表）
+            if self.on_event:
+                try:
+                    self.on_event("new_period", {"slug": slug, "ts": time.time()})
+                except Exception:
+                    pass
+
+            market, token_yes, token_no = await asyncio.to_thread(MarketData.load_market, slug)
             if market:
                 self.current_market = market
                 self.token_yes = token_yes
@@ -352,17 +397,75 @@ class Strategy:
                 self.token_no = None
                 log("市场未就绪", "WARN")
 
+    async def _audit_prev_signal(self):
+        """审核上一周期的信号：获取收盘价，判断 WIN/LOSS"""
+        sig = self._prev_signal
+        if not sig:
+            return
+
+        prev_slug = sig["slug"]
+        # 从 slug 提取周期起始时间戳: btc-updown-5m-{ts}
+        try:
+            interval_ts = int(prev_slug.split("-")[-1])
+        except (ValueError, IndexError):
+            self._prev_signal = None
+            return
+
+        end_price = await asyncio.to_thread(get_period_end_price, interval_ts)
+        if end_price is None:
+            log(f"[审核] {prev_slug}: 无法获取收盘价，跳过", "WARN")
+            self._prev_signal = None
+            return
+
+        start_price = sig["start_price"]
+        change = end_price - start_price
+        change_bps = (change / start_price) * 10000
+
+        # 判定结果
+        # BUY YES = 预测BTC会涨回来 → 正确当 end_price > start_price
+        # BUY NO  = 预测BTC会跌回来 → 正确当 end_price < start_price
+        if sig["side"] == "YES":
+            won = end_price > start_price
+        else:  # NO
+            won = end_price < start_price
+
+        result = "WIN" if won else "LOSS"
+        sig["end_price"] = end_price
+        sig["change_bps"] = round(change_bps, 2)
+        sig["result"] = result
+        self.signal_history.append(sig)
+
+        emoji = "✅" if won else "❌"
+        log(f"[审核] {prev_slug}: {sig['side']} → {result} {emoji} "
+            f"| 收盘 ${end_price:,.2f} | 变动 {change:+.2f} ({change_bps:+.1f}bp)")
+
+        # 通知 Dashboard
+        if self.on_event:
+            try:
+                self.on_event("signal_result", {
+                    "slug": prev_slug,
+                    "side": sig["side"],
+                    "result": result,
+                    "start_price": start_price,
+                    "end_price": end_price,
+                    "change_bps": round(change_bps, 2),
+                    "reason": sig["reason"],
+                    "ts": sig["ts"],
+                })
+            except Exception:
+                pass
+
+        self._prev_signal = None
+
     async def check_signals(self):
         """检查交易信号"""
         if not self.current_market:
             return
         if not self.token_yes or not self.token_no:
             return
-        if self.signal_given_this_period:
-            return
 
-        # 获取价格变动
-        change = self.btc.get_price_change()
+        # 获取价格变动（to_thread 避免阻塞事件循环）
+        change = await asyncio.to_thread(self.btc.get_price_change)
         if change is None:
             return
 
@@ -370,15 +473,35 @@ class Strategy:
         start = self.btc.period_start_price
         change_bps = (change / start) * 10000  # 转换为基点
 
-        # 从最新成交价获取实时赔率（REST API）
-        up_odds = MarketData.get_last_trade_price(self.token_yes)
-        down_odds = MarketData.get_last_trade_price(self.token_no)
+        # 获取实时赔率（订单簿中间价，比 last-trade-price 更实时）
+        up_odds = await asyncio.to_thread(MarketData.get_midpoint, self.token_yes)
+        down_odds = await asyncio.to_thread(MarketData.get_midpoint, self.token_no)
 
-        # 输出状态
+        # 输出状态（始终输出，包括信号触发后）
         if up_odds is not None and down_odds is not None:
-            log(f"BTC: ${current:,.2f} | 变动: {change:+.2f} ({change_bps:+.1f}基点) | UP: {up_odds:.1%} | DOWN: {down_odds:.1%}")
+            tag = " [已下单]" if self.signal_given_this_period else ""
+            log(f"BTC: ${current:,.2f} | 变动: {change:+.2f} ({change_bps:+.1f}基点) | UP: {up_odds:.1%} | DOWN: {down_odds:.1%}{tag}")
         else:
             log(f"BTC: ${current:,.2f} | 变动: {change:+.2f} ({change_bps:+.1f}基点) | 赔率获取失败")
+            return
+
+        # 发送 tick 事件给 Dashboard
+        if self.on_event:
+            try:
+                self.on_event("tick", {
+                    "price": current,
+                    "start_price": start,
+                    "change": change,
+                    "change_bps": change_bps,
+                    "up_odds": up_odds,
+                    "down_odds": down_odds,
+                    "ts": time.time(),
+                })
+            except Exception:
+                pass
+
+        # 已下单则跳过信号判断
+        if self.signal_given_this_period:
             return
 
         # 判断信号
@@ -401,9 +524,28 @@ class Strategy:
         if signal:
             side_label, token_id, reason = signal
             log(f"*** 信号触发: {reason} ***")
+            ts_str = now_beijing().strftime("%Y-%m-%d %H:%M:%S")
+            if self.on_event:
+                try:
+                    self.on_event("signal", {"side": side_label, "reason": reason, "ts": ts_str})
+                except Exception:
+                    pass
             order_id = await self.trader.place_buy(token_id, side_label)
             if order_id:
                 self.signal_given_this_period = True
+                # 记录信号供下一周期审核
+                self._prev_signal = {
+                    "slug": self.current_slug,
+                    "side": side_label,
+                    "reason": reason,
+                    "start_price": start,
+                    "signal_price": current,
+                    "signal_bps": round(change_bps, 2),
+                    "ts": ts_str,
+                    "end_price": None,
+                    "change_bps": None,
+                    "result": None,
+                }
 
     async def run_loop(self):
         """主循环"""
@@ -412,10 +554,10 @@ class Strategy:
         while True:
             try:
                 # 更新市场（检测新周期）
-                self.update_market()
+                await self.update_market()
 
-                # 更新BTC价格
-                self.btc.get_current_price()
+                # 更新BTC价格（to_thread 避免阻塞事件循环）
+                await asyncio.to_thread(self.btc.get_current_price)
 
                 # 检查信号
                 await self.check_signals()

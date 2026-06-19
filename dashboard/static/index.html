@@ -1,0 +1,604 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BTC 5m Strategy</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3"></script>
+<style>
+:root {
+  --bg-0: #09090b;
+  --bg-1: #18181b;
+  --bg-2: #27272a;
+  --bg-3: #3f3f46;
+  --border: #2e2e33;
+  --green: #22c55e;
+  --green-dim: rgba(34,197,94,0.1);
+  --red: #ef4444;
+  --red-dim: rgba(239,68,68,0.1);
+  --blue: #3b82f6;
+  --blue-dim: rgba(59,130,246,0.1);
+  --amber: #eab308;
+  --text-1: #fafafa;
+  --text-2: #a1a1aa;
+  --text-3: #71717a;
+  --radius: 8px;
+}
+
+*, *::before, *::after { margin:0; padding:0; box-sizing:border-box; }
+
+body {
+  background: var(--bg-0);
+  color: var(--text-1);
+  font-family: 'Inter', -apple-system, sans-serif;
+  font-size: 13px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  overflow: hidden;
+}
+
+::-webkit-scrollbar { width: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--bg-3); border-radius: 3px; }
+
+/* ── Header ────────────────────────────────── */
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 24px;
+  height: 52px;
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--border);
+}
+.header-left, .header-right { display: flex; align-items: center; gap: 14px; }
+.brand {
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: -0.3px;
+  color: var(--text-1);
+}
+.brand span { color: var(--text-3); font-weight: 400; }
+
+.status {
+  font-size: 11px;
+  font-weight: 500;
+  padding: 2px 8px;
+  border-radius: 4px;
+  letter-spacing: 0.3px;
+}
+.status.stopped { background: var(--bg-2); color: var(--text-3); }
+.status.running { background: var(--green-dim); color: var(--green); }
+.status.dry { background: rgba(234,179,8,0.1); color: var(--amber); }
+
+.toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-3);
+  cursor: pointer;
+  user-select: none;
+}
+.toggle input { accent-color: var(--blue); width: 14px; height: 14px; }
+
+.btn {
+  height: 30px;
+  padding: 0 14px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-2);
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.btn:hover { background: var(--bg-2); color: var(--text-1); }
+.btn-primary { border-color: var(--green); color: var(--green); }
+.btn-primary:hover { background: var(--green-dim); }
+.btn-danger { border-color: var(--red); color: var(--red); }
+.btn-danger:hover { background: var(--red-dim); }
+.btn:disabled { opacity: 0.25; pointer-events: none; }
+
+/* ── Stats ─────────────────────────────────── */
+.stats {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 1px;
+  background: var(--border);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.stat {
+  background: var(--bg-1);
+  padding: 14px 20px;
+}
+.stat-label {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-3);
+  margin-bottom: 4px;
+  letter-spacing: 0.02em;
+}
+.stat-value {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 18px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-1);
+}
+.stat-value.green { color: var(--green); }
+.stat-value.red { color: var(--red); }
+
+@keyframes flash-up {
+  0% { color: var(--green); }
+  100% { color: var(--text-1); }
+}
+@keyframes flash-down {
+  0% { color: var(--red); }
+  100% { color: var(--text-1); }
+}
+.flash-up { animation: flash-up 1s ease-out; }
+.flash-down { animation: flash-down 1s ease-out; }
+
+/* ── Charts ────────────────────────────────── */
+.charts {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1px;
+  background: var(--border);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.chart-panel {
+  background: var(--bg-1);
+}
+.chart-head {
+  padding: 12px 20px 0;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-3);
+}
+.chart-body {
+  height: 260px;
+  padding: 8px 16px 12px;
+}
+
+/* ── Tabs ──────────────────────────────────── */
+.tab-bar {
+  display: flex;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-1);
+  flex-shrink: 0;
+}
+.tab-btn {
+  padding: 10px 20px;
+  border: none;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--text-3);
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s;
+}
+.tab-btn:hover { color: var(--text-2); }
+.tab-btn.active { color: var(--text-1); border-bottom-color: var(--text-1); }
+
+.tab-pane { display: none; flex: 1; min-height: 0; overflow: auto; }
+.tab-pane.active { display: flex; flex-direction: column; }
+
+/* ── Table ─────────────────────────────────── */
+.tbl-wrap { overflow: auto; flex: 1; min-height: 0; }
+table { width: 100%; border-collapse: collapse; font-size: 12px; }
+thead { position: sticky; top: 0; z-index: 1; }
+th {
+  background: var(--bg-2);
+  text-align: left;
+  padding: 8px 16px;
+  font-weight: 500;
+  font-size: 11px;
+  color: var(--text-3);
+  border-bottom: 1px solid var(--border);
+}
+td {
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-2);
+  font-variant-numeric: tabular-nums;
+}
+tr:hover td { background: var(--bg-2); }
+.c-g { color: var(--green); }
+.c-r { color: var(--red); }
+
+/* ── Audit ─────────────────────────────────── */
+.audit-hero {
+  display: flex;
+  align-items: center;
+  gap: 32px;
+  padding: 24px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-1);
+  flex-shrink: 0;
+}
+.pie-wrap {
+  width: 96px;
+  height: 96px;
+  position: relative;
+  flex-shrink: 0;
+}
+.pie-center {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+.pie-center .num {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--text-1);
+  line-height: 1;
+}
+.pie-center .lbl {
+  font-size: 10px;
+  color: var(--text-3);
+  margin-top: 2px;
+}
+.audit-meta { display: flex; flex-direction: column; gap: 10px; }
+.audit-row { display: flex; align-items: center; gap: 10px; }
+.audit-dot { width: 10px; height: 10px; border-radius: 2px; flex-shrink: 0; }
+.audit-n {
+  font-family: 'JetBrains Mono', monospace;
+  font-weight: 600;
+  font-size: 14px;
+  min-width: 28px;
+}
+.audit-lbl { color: var(--text-3); font-size: 12px; }
+
+/* ── Log ───────────────────────────────────── */
+.log-bar {
+  display: flex;
+  justify-content: flex-end;
+  padding: 8px 20px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-1);
+  flex-shrink: 0;
+}
+.log-body {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  line-height: 1.8;
+  padding: 8px 0;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  background: var(--bg-0);
+}
+.log-line { padding: 0 20px; white-space: pre-wrap; word-break: break-all; }
+.log-line .ts { color: var(--text-3); }
+.log-line .lv { font-weight: 500; }
+.log-line .lv-INFO { color: var(--blue); }
+.log-line .lv-WARN { color: var(--amber); }
+.log-line .lv-ERROR { color: var(--red); }
+.log-line .msg { color: var(--text-2); }
+
+/* ── Responsive ────────────────────────────── */
+@media (max-width: 900px) {
+  .stats { grid-template-columns: repeat(3, 1fr); }
+  .charts { grid-template-columns: 1fr; }
+  .audit-hero { flex-direction: column; }
+}
+@media (max-width: 500px) {
+  .stats { grid-template-columns: repeat(2, 1fr); }
+  .header { padding: 0 16px; }
+}
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="header-left">
+    <div class="brand">BTC <span>5m Strategy</span></div>
+    <div class="status stopped" id="badge">STOPPED</div>
+  </div>
+  <div class="header-right">
+    <label class="toggle"><input type="checkbox" id="dryRun" checked> Dry Run</label>
+    <button class="btn btn-primary" id="btnStart" onclick="doStart()">Start</button>
+    <button class="btn btn-danger" id="btnStop" onclick="doStop()" disabled>Stop</button>
+  </div>
+</div>
+
+<div class="stats">
+  <div class="stat">
+    <div class="stat-label">BTC Price</div>
+    <div class="stat-value" id="sPrice">--</div>
+  </div>
+  <div class="stat">
+    <div class="stat-label">Change</div>
+    <div class="stat-value" id="sChange">--</div>
+  </div>
+  <div class="stat">
+    <div class="stat-label">UP Odds</div>
+    <div class="stat-value green" id="sUp">--</div>
+  </div>
+  <div class="stat">
+    <div class="stat-label">DOWN Odds</div>
+    <div class="stat-value red" id="sDown">--</div>
+  </div>
+  <div class="stat">
+    <div class="stat-label">Signals</div>
+    <div class="stat-value" id="sSignals">0</div>
+  </div>
+  <div class="stat">
+    <div class="stat-label">Positions</div>
+    <div class="stat-value" id="sPositions">0</div>
+  </div>
+</div>
+
+<div class="charts">
+  <div class="chart-panel">
+    <div class="chart-head">BTC Price</div>
+    <div class="chart-body"><canvas id="priceChart"></canvas></div>
+  </div>
+  <div class="chart-panel">
+    <div class="chart-head">UP / DOWN Odds</div>
+    <div class="chart-body"><canvas id="oddsChart"></canvas></div>
+  </div>
+</div>
+
+<div class="tab-bar">
+  <button class="tab-btn active" data-tab="signals">Signals</button>
+  <button class="tab-btn" data-tab="audit">Audit</button>
+  <button class="tab-btn" data-tab="log">Log</button>
+</div>
+
+<div class="tab-pane active" id="tab-signals">
+  <div class="tbl-wrap">
+    <table>
+      <thead><tr><th>Time</th><th>Side</th><th>Reason</th></tr></thead>
+      <tbody id="signalsBody"></tbody>
+    </table>
+  </div>
+</div>
+
+<div class="tab-pane" id="tab-audit">
+  <div class="audit-hero">
+    <div class="pie-wrap">
+      <canvas id="auditPie"></canvas>
+      <div class="pie-center">
+        <div class="num" id="auditRate">--</div>
+        <div class="lbl">Win Rate</div>
+      </div>
+    </div>
+    <div class="audit-meta">
+      <div class="audit-row">
+        <div class="audit-dot" style="background:var(--green)"></div>
+        <div class="audit-n c-g" id="auditWins">0</div>
+        <div class="audit-lbl">Wins</div>
+      </div>
+      <div class="audit-row">
+        <div class="audit-dot" style="background:var(--red)"></div>
+        <div class="audit-n c-r" id="auditLosses">0</div>
+        <div class="audit-lbl">Losses</div>
+      </div>
+      <div class="audit-row">
+        <div class="audit-dot" style="background:var(--text-3)"></div>
+        <div class="audit-n" id="auditTotal">0</div>
+        <div class="audit-lbl">Total</div>
+      </div>
+    </div>
+  </div>
+  <div class="tbl-wrap">
+    <table>
+      <thead><tr><th>Time</th><th>Side</th><th>Result</th><th>Start</th><th>End</th><th>Change</th><th>Reason</th></tr></thead>
+      <tbody id="auditBody"></tbody>
+    </table>
+  </div>
+</div>
+
+<div class="tab-pane" id="tab-log">
+  <div class="log-bar"><button class="btn" onclick="clearLog()">Clear</button></div>
+  <div class="log-body" id="logBody"></div>
+</div>
+
+<script>
+// ── Tabs ─────────────────────────────────────
+document.querySelectorAll('.tab-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById('tab-' + btn.dataset.tab).classList.add('active');
+  });
+});
+
+// ── WebSocket ────────────────────────────────
+let ws = null, reconnectTimer = null;
+
+function connect() {
+  const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+  ws = new WebSocket(`${proto}://${location.host}/ws`);
+  ws.onopen = () => { clearTimeout(reconnectTimer); };
+  ws.onmessage = e => handleMessage(JSON.parse(e.data));
+  ws.onclose = () => { reconnectTimer = setTimeout(connect, 3000); };
+  ws.onerror = () => ws.close();
+}
+
+function handleMessage(m) {
+  const h = { tick:onTick, signal:onSignal, signal_result:onSignalResult, log:onLog, status:onStatus, history:onHistory, new_period:onNewPeriod };
+  if (h[m.type]) h[m.type](m.data);
+  else if (m.type === 'error') onLog({level:'ERROR', msg:m.data.msg, ts:''});
+}
+
+// ── Charts ───────────────────────────────────
+const mono = "'JetBrains Mono',monospace";
+const gridColor = 'rgba(63,63,70,0.4)';
+
+const baseScales = {
+  x: { type:'time', time:{unit:'minute',displayFormats:{minute:'HH:mm'}}, grid:{color:gridColor,drawBorder:false}, ticks:{color:'#71717a',maxTicksLimit:6,font:{family:mono,size:10}}, border:{display:false} },
+  y: { grid:{color:gridColor,drawBorder:false}, ticks:{color:'#71717a',font:{family:mono,size:10}}, border:{display:false} }
+};
+
+const priceChart = new Chart(document.getElementById('priceChart'), {
+  type:'line',
+  data:{datasets:[{
+    data:[], borderColor:'#3b82f6', backgroundColor:'rgba(59,130,246,0.05)',
+    borderWidth:1.5, pointRadius:0, pointHitRadius:6, fill:true, tension:0.2
+  }]},
+  options:{responsive:true, maintainAspectRatio:false, animation:false, scales:baseScales, plugins:{legend:{display:false},tooltip:{mode:'index',intersect:false}}}
+});
+
+const oddsChart = new Chart(document.getElementById('oddsChart'), {
+  type:'line',
+  data:{datasets:[
+    {label:'UP', data:[], borderColor:'#22c55e', borderWidth:1.5, pointRadius:0, pointHitRadius:6, tension:0.2},
+    {label:'DOWN', data:[], borderColor:'#ef4444', borderWidth:1.5, pointRadius:0, pointHitRadius:6, tension:0.2}
+  ]},
+  options:{responsive:true, maintainAspectRatio:false, animation:false,
+    scales:{...baseScales, y:{...baseScales.y, min:0, max:1, ticks:{...baseScales.y.ticks, callback:v=>(v*100)+'%'}}},
+    plugins:{legend:{labels:{color:'#a1a1aa',font:{family:mono,size:11},usePointStyle:true,pointStyle:'line',padding:16}},tooltip:{mode:'index',intersect:false}}}
+});
+
+const MAX_PTS = 200;
+function push(c,i,x,y){const d=c.data.datasets[i].data;d.push({x,y});if(d.length>MAX_PTS)d.shift();c.update('none');}
+
+// ── Audit Pie ────────────────────────────────
+const auditPie = new Chart(document.getElementById('auditPie'), {
+  type:'doughnut',
+  data:{labels:['WIN','LOSS'],datasets:[{data:[0,0],backgroundColor:['#22c55e','#ef4444'],borderWidth:0,borderRadius:3}]},
+  options:{responsive:true,maintainAspectRatio:true,cutout:'70%',plugins:{legend:{display:false},tooltip:{enabled:true}},animation:{duration:300}}
+});
+
+// ── State ────────────────────────────────────
+let signalCount=0, positionCount=0, auditW=0, auditL=0, lastPrice=null;
+
+// ── Handlers ─────────────────────────────────
+function onTick(d){
+  const ts=d.ts*1000;
+  push(priceChart,0,ts,d.price);
+  push(oddsChart,0,ts,d.up_odds);
+  push(oddsChart,1,ts,d.down_odds);
+
+  const el=document.getElementById('sPrice');
+  el.textContent='$'+d.price.toLocaleString(undefined,{minimumFractionDigits:2});
+  if(lastPrice!==null){
+    el.classList.remove('flash-up','flash-down');
+    void el.offsetWidth;
+    el.classList.add(d.price>=lastPrice?'flash-up':'flash-down');
+  }
+  lastPrice=d.price;
+
+  const ch=document.getElementById('sChange');
+  ch.textContent=(d.change_bps>=0?'+':'')+d.change_bps.toFixed(1)+' bp';
+  ch.className='stat-value '+(d.change_bps>0?'red':d.change_bps<0?'green':'');
+
+  document.getElementById('sUp').textContent=(d.up_odds*100).toFixed(1)+'%';
+  document.getElementById('sDown').textContent=(d.down_odds*100).toFixed(1)+'%';
+}
+
+function onSignal(d){
+  signalCount++; positionCount++;
+  document.getElementById('sSignals').textContent=signalCount;
+  document.getElementById('sPositions').textContent=positionCount;
+  const tr=document.createElement('tr');
+  tr.innerHTML=`<td>${d.ts}</td><td class="${d.side==='YES'?'c-g':'c-r'}">${d.side}</td><td>${d.reason}</td>`;
+  document.getElementById('signalsBody').prepend(tr);
+}
+
+function onSignalResult(d){
+  if(d.result==='WIN') auditW++; else auditL++;
+  updateAudit();
+  const tr=document.createElement('tr');
+  const sc=d.side==='YES'?'c-g':'c-r', rc=d.result==='WIN'?'c-g':'c-r';
+  tr.innerHTML=`<td>${d.ts}</td><td class="${sc}">${d.side}</td><td class="${rc}">${d.result}</td>`
+    +`<td>$${d.start_price.toLocaleString(undefined,{minimumFractionDigits:2})}</td>`
+    +`<td>$${d.end_price.toLocaleString(undefined,{minimumFractionDigits:2})}</td>`
+    +`<td>${d.change_bps>=0?'+':''}${d.change_bps} bp</td><td>${d.reason}</td>`;
+  document.getElementById('auditBody').prepend(tr);
+}
+
+function updateAudit(){
+  const t=auditW+auditL, r=t>0?((auditW/t)*100).toFixed(1):'--';
+  document.getElementById('auditRate').textContent=t>0?r+'%':'--';
+  document.getElementById('auditWins').textContent=auditW;
+  document.getElementById('auditLosses').textContent=auditL;
+  document.getElementById('auditTotal').textContent=t;
+  auditPie.data.datasets[0].data=[auditW,auditL];
+  auditPie.update();
+}
+
+function onLog(d){
+  const body=document.getElementById('logBody');
+  const div=document.createElement('div');
+  div.className='log-line';
+  const ts=d.ts?`<span class="ts">[${d.ts}]</span> `:'';
+  div.innerHTML=`${ts}<span class="lv lv-${d.level}">[${d.level}]</span> <span class="msg">${d.msg.replace(/&/g,'&amp;').replace(/</g,'&lt;')}</span>`;
+  body.appendChild(div);
+  body.scrollTop=body.scrollHeight;
+  while(body.children.length>500) body.removeChild(body.firstChild);
+}
+
+function onStatus(d){
+  const b=document.getElementById('badge');
+  if(d.running){
+    b.textContent=d.dry_run?'DRY RUN':'LIVE';
+    b.className='status '+(d.dry_run?'dry':'running');
+    document.getElementById('btnStart').disabled=true;
+    document.getElementById('btnStop').disabled=false;
+  }else{
+    b.textContent='STOPPED';
+    b.className='status stopped';
+    document.getElementById('btnStart').disabled=false;
+    document.getElementById('btnStop').disabled=true;
+  }
+}
+
+function onHistory(d){
+  if(d.prices) d.prices.forEach(p=>push(priceChart,0,p.ts*1000,p.price));
+  if(d.odds) d.odds.forEach(o=>{push(oddsChart,0,o.ts*1000,o.up_odds);push(oddsChart,1,o.ts*1000,o.down_odds);});
+  if(d.logs) d.logs.forEach(l=>onLog(l));
+  if(d.signals){
+    d.signals.forEach(s=>{
+      signalCount++;
+      const tr=document.createElement('tr');
+      tr.innerHTML=`<td>${s.ts}</td><td class="${s.side==='YES'?'c-g':'c-r'}">${s.side}</td><td>${s.reason}</td>`;
+      document.getElementById('signalsBody').appendChild(tr);
+    });
+    document.getElementById('sSignals').textContent=signalCount;
+  }
+  if(d.signal_audit) d.signal_audit.forEach(a=>onSignalResult(a));
+  if(d.running!==undefined) onStatus({running:d.running,dry_run:d.dry_run});
+}
+
+function onNewPeriod(d){
+  priceChart.data.datasets[0].data=[];
+  oddsChart.data.datasets[0].data=[];
+  oddsChart.data.datasets[1].data=[];
+  priceChart.update('none'); oddsChart.update('none');
+  signalCount=0; lastPrice=null;
+  document.getElementById('sSignals').textContent='0';
+  document.getElementById('signalsBody').innerHTML='';
+  onLog({level:'INFO',msg:`--- NEW PERIOD: ${d.slug} ---`,ts:''});
+}
+
+function doStart(){if(ws&&ws.readyState===1) ws.send(JSON.stringify({action:'start',dry_run:document.getElementById('dryRun').checked}));}
+function doStop(){if(ws&&ws.readyState===1) ws.send(JSON.stringify({action:'stop'}));}
+function clearLog(){document.getElementById('logBody').innerHTML='';}
+
+connect();
+</script>
+</body>
+</html>
