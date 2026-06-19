@@ -1,0 +1,21 @@
+[project]
+name = "polymarketv2"
+version = "0.1.0"
+description = "Polymarket BTC 5-minute prediction market automated trading system"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+dependencies = [
+    "polymarket-client>=0.1.0b8",
+    "py-clob-client==0.34.6",
+    "py-clob-client-v2>=1.0.1",
+    "websockets>=12.0",
+    "python-dotenv>=1.0.0",
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.34",
+    "requests>=2.31",
+]
+
+[project.scripts]
+btc5m = "btc5m_strategy:main"
+dashboard = "dashboard.app:main"
