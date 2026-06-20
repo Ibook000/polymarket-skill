@@ -61,8 +61,8 @@ class Config:
     DOWN_ODDS_THRESHOLD    = 0.50    # DOWN赔率 < 50% 时满足条件
     ORDER_SIZE             = 10      # 每单份额（限价单）
     ORDER_PRICE            = 0.50    # 限价单价格
-    ORDER_AMOUNT           = 5       # 市价单花费金额 (USDC)
-    USE_MARKET_ORDER       = False   # True=市价单, False=限价单
+    ORDER_AMOUNT           = 2       # 市价单花费金额 (USDC)
+    USE_MARKET_ORDER       = True    # True=市价单, False=限价单
     MAX_POSITION           = 100     # 最大持仓份额
     COOLDOWN_SEC           = 60      # 下单冷却时间（秒）
     CHECK_INTERVAL_SEC     = 5      # 价格检查间隔（秒）
@@ -553,19 +553,19 @@ class Strategy:
                 except Exception:
                     pass
             order_id = await self.trader.place_buy(token_id, side_label)
-                # 记录信号供下一周期审核
-                self._prev_signal = {
-                    "slug": self.current_slug,
-                    "side": side_label,
-                    "reason": reason,
-                    "start_price": start,
-                    "signal_price": current,
-                    "signal_bps": round(change_bps, 2),
-                    "ts": ts_str,
-                    "end_price": None,
-                    "change_bps": None,
-                    "result": None,
-                }
+            # 记录信号供下一周期审核
+            self._prev_signal = {
+                "slug": self.current_slug,
+                "side": side_label,
+                "reason": reason,
+                "start_price": start,
+                "signal_price": current,
+                "signal_bps": round(change_bps, 2),
+                "ts": ts_str,
+                "end_price": None,
+                "change_bps": None,
+                "result": None,
+            }
 
     async def run_loop(self):
         """主循环"""
