@@ -61,7 +61,7 @@ class Config:
     ORDER_PRICE            = 0.50    # 限价单价格
     MAX_POSITION           = 100     # 最大持仓份额
     COOLDOWN_SEC           = 60      # 下单冷却时间（秒）
-    CHECK_INTERVAL_SEC     = 0      # 价格检查间隔（秒）
+    CHECK_INTERVAL_SEC     = 5      # 价格检查间隔（秒）
 
     # 币安API
     BINANCE_KLINE_URL = "https://api.binance.com/api/v3/klines"
@@ -524,6 +524,8 @@ class Strategy:
         if signal:
             side_label, token_id, reason = signal
             log(f"*** 信号触发: {reason} ***")
+            # 立即标记，防止同一周期重复下单
+            self.signal_given_this_period = True
             ts_str = now_beijing().strftime("%Y-%m-%d %H:%M:%S")
             if self.on_event:
                 try:
@@ -531,8 +533,6 @@ class Strategy:
                 except Exception:
                     pass
             order_id = await self.trader.place_buy(token_id, side_label)
-            if order_id:
-                self.signal_given_this_period = True
                 # 记录信号供下一周期审核
                 self._prev_signal = {
                     "slug": self.current_slug,
