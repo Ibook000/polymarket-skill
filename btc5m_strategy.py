@@ -31,18 +31,20 @@ import requests
 
 # 延迟导入：仅 CLI 直接运行时加载 .env；模块导入时不加载
 _place_limit_order = None
+_place_market_buy = None
 _create_client = None
 
 
 def _ensure_place_order_loaded():
     """延迟加载 place_order 模块（避免 import 时触发 .env / SDK 初始化）"""
-    global _place_limit_order, _create_client
+    global _place_limit_order, _place_market_buy, _create_client
     if _place_limit_order is None:
         from dotenv import load_dotenv
         load_dotenv()
-        from place_order import create_client, place_order
+        from place_order import create_client, place_order, place_market_buy
         _create_client = create_client
         _place_limit_order = place_order
+        _place_market_buy = place_market_buy
 
 # ======================== 配置 ========================
 
@@ -57,8 +59,10 @@ class Config:
     PRICE_CHANGE_BPS       = 2      # 价格变动阈值（基点，1基点=0.01%，2基点=0.02%）
     UP_ODDS_THRESHOLD      = 0.50    # UP赔率 > 50% 时满足条件
     DOWN_ODDS_THRESHOLD    = 0.50    # DOWN赔率 < 50% 时满足条件
-    ORDER_SIZE             = 10      # 每单份额
+    ORDER_SIZE             = 10      # 每单份额（限价单）
     ORDER_PRICE            = 0.50    # 限价单价格
+    ORDER_AMOUNT           = 5       # 市价单花费金额 (USDC)
+    USE_MARKET_ORDER       = False   # True=市价单, False=限价单
     MAX_POSITION           = 100     # 最大持仓份额
     COOLDOWN_SEC           = 60      # 下单冷却时间（秒）
     CHECK_INTERVAL_SEC     = 5      # 价格检查间隔（秒）
@@ -287,7 +291,10 @@ class Trader:
             return None
 
         if self.dry_run:
-            log(f"[模拟] 买 {side_label}: price={Config.ORDER_PRICE}, size={Config.ORDER_SIZE}")
+            if Config.USE_MARKET_ORDER:
+                log(f"[模拟] 市价买 {side_label}: amount={Config.ORDER_AMOUNT} USDC")
+            else:
+                log(f"[模拟] 限价买 {side_label}: price={Config.ORDER_PRICE}, size={Config.ORDER_SIZE}")
             return "dry-run-order-id"
 
         if not self.client:
@@ -296,17 +303,26 @@ class Trader:
 
         try:
             _ensure_place_order_loaded()
-            resp = await _place_limit_order(
-                self.client,
-                token_id=token_id,
-                side="BUY",
-                price=Config.ORDER_PRICE,
-                size=Config.ORDER_SIZE,
-            )
+
+            if Config.USE_MARKET_ORDER:
+                resp = await _place_market_buy(
+                    self.client,
+                    token_id=token_id,
+                    amount=Config.ORDER_AMOUNT,
+                )
+            else:
+                resp = await _place_limit_order(
+                    self.client,
+                    token_id=token_id,
+                    side="BUY",
+                    price=Config.ORDER_PRICE,
+                    size=Config.ORDER_SIZE,
+                )
 
             if resp.ok:
                 order_id = resp.order_id
-                log(f"[OK] 买单已提交: {side_label} | order_id={order_id[:16]}...")
+                mode = "市价" if Config.USE_MARKET_ORDER else "限价"
+                log(f"[OK] {mode}买单已提交: {side_label} | order_id={order_id[:16]}...")
                 self.last_trade_time = time.time()
                 self.position_count += 1
                 return order_id
@@ -346,7 +362,11 @@ class Strategy:
         log(f"模式: {'模拟' if self.dry_run else '实盘'}")
         log(f"价格变动阈值: ±{Config.PRICE_CHANGE_BPS}基点 (±{Config.PRICE_CHANGE_BPS/100:.2f}%)")
         log(f"信号: BTC下跌+UP赔率>{Config.UP_ODDS_THRESHOLD:.0%} → 买YES | BTC上涨+DOWN赔率<{Config.DOWN_ODDS_THRESHOLD:.0%} → 买NO")
-        log(f"单笔份额: {Config.ORDER_SIZE}")
+        if Config.USE_MARKET_ORDER:
+            log(f"下单模式: 市价 | 单笔花费: {Config.ORDER_AMOUNT} USDC")
+        else:
+            log(f"下单模式: 限价 | 单笔份额: {Config.ORDER_SIZE} @ ${Config.ORDER_PRICE}")
+
         log(f"最大持仓: {Config.MAX_POSITION}")
         log("=" * 60)
 

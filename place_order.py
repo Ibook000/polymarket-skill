@@ -101,6 +101,46 @@ async def place_order(client, token_id: str, side: str, price: float | str, size
     return response
 
 
+async def place_market_buy(client, token_id: str, amount: float | str):
+    """
+    市价买入 (market buy)。
+
+    Args:
+        client: AsyncSecureClient 实例
+        token_id: Token ID
+        amount: 花费金额 (USDC)
+
+    Returns:
+        OrderResponse — 检查 response.ok 判断是否成功
+    """
+    signed = await client.create_market_order(
+        token_id=token_id,
+        side="BUY",
+        amount=str(amount),
+    )
+    return await client.post_order(signed)
+
+
+async def place_market_sell(client, token_id: str, shares: float | str):
+    """
+    市价卖出 (market sell)。
+
+    Args:
+        client: AsyncSecureClient 实例
+        token_id: Token ID
+        shares: 卖出份额
+
+    Returns:
+        OrderResponse — 检查 response.ok 判断是否成功
+    """
+    signed = await client.create_market_order(
+        token_id=token_id,
+        side="SELL",
+        shares=str(shares),
+    )
+    return await client.post_order(signed)
+
+
 async def cancel_order(client, order_id: str):
     """
     撤销指定订单。
@@ -192,6 +232,28 @@ async def _cmd_sell(args) -> int:
             return 1
 
 
+async def _cmd_market_buy(args) -> int:
+    async with await create_client() as client:
+        resp = await place_market_buy(client, args.token_id, args.amount)
+        if resp.ok:
+            print(f"市价买入成功: order_id={resp.order_id}")
+            return 0
+        else:
+            print(f"市价买入失败: {getattr(resp, 'code', 'UNKNOWN')} - {getattr(resp, 'message', '')}", file=sys.stderr)
+            return 1
+
+
+async def _cmd_market_sell(args) -> int:
+    async with await create_client() as client:
+        resp = await place_market_sell(client, args.token_id, args.shares)
+        if resp.ok:
+            print(f"市价卖出成功: order_id={resp.order_id}")
+            return 0
+        else:
+            print(f"市价卖出失败: {getattr(resp, 'code', 'UNKNOWN')} - {getattr(resp, 'message', '')}", file=sys.stderr)
+            return 1
+
+
 async def _cmd_cancel(args) -> int:
     async with await create_client() as client:
         resp = await cancel_order(client, args.order_id)
@@ -248,6 +310,16 @@ def main():
     p.add_argument("--price", type=float, required=True)
     p.add_argument("--size", type=float, required=True)
     p.set_defaults(func=lambda a: asyncio.run(_cmd_sell(a)))
+
+    p = sub.add_parser("market-buy", help="市价买入 (花费 USDC)")
+    p.add_argument("--token-id", required=True)
+    p.add_argument("--amount", type=float, required=True, help="花费金额 (USDC)")
+    p.set_defaults(func=lambda a: asyncio.run(_cmd_market_buy(a)))
+
+    p = sub.add_parser("market-sell", help="市价卖出 (卖出份额)")
+    p.add_argument("--token-id", required=True)
+    p.add_argument("--shares", type=float, required=True, help="卖出份额")
+    p.set_defaults(func=lambda a: asyncio.run(_cmd_market_sell(a)))
 
     p = sub.add_parser("cancel", help="撤单")
     p.add_argument("--order-id", required=True)
