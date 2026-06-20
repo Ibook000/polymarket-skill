@@ -69,6 +69,7 @@ async def handle_start(msg: dict, ws: WebSocket):
 
     dry_run = msg.get("dry_run", True)
     strategy.dry_run = dry_run
+    strategy.trader.dry_run = dry_run   # 同步到 Trader，否则下单永远走模拟
     strategy.once = False
 
     # 重置策略状态以允许重新启动
