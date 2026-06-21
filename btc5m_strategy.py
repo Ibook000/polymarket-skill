@@ -63,7 +63,6 @@ class Config:
     ORDER_PRICE            = 0.50    # 限价单价格
     ORDER_AMOUNT           = 2       # 市价单花费金额 (USDC)
     USE_MARKET_ORDER       = True    # True=市价单, False=限价单
-    MAX_POSITION           = 100     # 最大持仓份额
     COOLDOWN_SEC           = 60      # 下单冷却时间（秒）
     CHECK_INTERVAL_SEC     = 5      # 价格检查间隔（秒）
 
@@ -255,7 +254,6 @@ class Trader:
         self.dry_run = dry_run
         self.client = None  # AsyncSecureClient
         self.last_trade_time: float = 0
-        self.position_count: int = 0
 
     async def init_client(self):
         """初始化交易客户端"""
@@ -272,15 +270,11 @@ class Trader:
             await self.client.close()
 
     def can_trade(self) -> bool:
-        """检查是否可以交易"""
+        """检查是否可以交易（冷却时间）"""
         elapsed = time.time() - self.last_trade_time
         if elapsed < Config.COOLDOWN_SEC:
             remaining = Config.COOLDOWN_SEC - elapsed
             log(f"冷却中，还需等待 {remaining:.0f} 秒")
-            return False
-
-        if self.position_count >= Config.MAX_POSITION / Config.ORDER_SIZE:
-            log(f"已达最大仓位限制 {Config.MAX_POSITION} 份额")
             return False
 
         return True
@@ -322,12 +316,11 @@ class Trader:
             if resp.ok:
                 order_id = resp.order_id
                 mode = "市价" if Config.USE_MARKET_ORDER else "限价"
-                log(f"[OK] {mode}买单已提交: {side_label} | order_id={order_id[:16]}...")
+                log(f"[OK] {mode}买单已提交: {side_label} | order_id={order_id[:16]}...{resp}")
                 self.last_trade_time = time.time()
-                self.position_count += 1
                 return order_id
             else:
-                log(f"[FAIL] 下单失败: {getattr(resp, 'code', '')} - {getattr(resp, 'message', '')}", "ERROR")
+                log(f"[FAIL] 下单失败: {getattr(resp, 'code', '')} - {getattr(resp, 'message', '')}...{resp}", "ERROR")
                 return None
 
         except Exception as e:
@@ -367,7 +360,6 @@ class Strategy:
         else:
             log(f"下单模式: 限价 | 单笔份额: {Config.ORDER_SIZE} @ ${Config.ORDER_PRICE}")
 
-        log(f"最大持仓: {Config.MAX_POSITION}")
         log("=" * 60)
 
         # 初始化交易客户端
@@ -538,7 +530,7 @@ class Strategy:
         elif change_bps >= threshold_bps:
             if down_odds > Config.DOWN_ODDS_THRESHOLD:
                 signal = ("NO", self.token_no,
-                          f"BTC上涨{change_bps:.1f}bp + DOWN赔率{down_odds:.0%}<50% → 买NO")
+                          f"BTC上涨{change_bps:.1f}bp + DOWN赔率{down_odds:.0%}>50% → 买NO")
 
         # 执行交易
         if signal:
