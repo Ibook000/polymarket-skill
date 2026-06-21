@@ -39,6 +39,7 @@ body {
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%) rotate(-30deg);
+  font-family: 'JetBrains Mono', monospace;
   font-size: 12vw;
   font-weight: 800;
   letter-spacing: 0.1em;
@@ -47,6 +48,7 @@ body {
   z-index: 9999;
   user-select: none;
   white-space: nowrap;
+  font-feature-settings: "zero" on;
 }
 
 ::-webkit-scrollbar { width: 5px; }
