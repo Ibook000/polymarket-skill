@@ -34,8 +34,7 @@ body {
 }
 
 /* ── Watermark ─────────────────────────────── */
-body::before {
-  content: 'IBO0OK';
+.watermark {
   position: fixed;
   top: 50%;
   left: 50%;
@@ -43,9 +42,9 @@ body::before {
   font-size: 12vw;
   font-weight: 800;
   letter-spacing: 0.1em;
-  color: rgba(255, 255, 255, 0.03);
+  color: rgba(255, 255, 255, 0.04);
   pointer-events: none;
-  z-index: 0;
+  z-index: 9999;
   user-select: none;
   white-space: nowrap;
 }
@@ -55,11 +54,6 @@ body::before {
 ::-webkit-scrollbar-thumb { background: var(--bg-3); border-radius: 3px; }
 
 /* ── Header ────────────────────────────────── */
-.header, .stats, .charts, .tab-bar, .tab-pane, .audit-hero, .log-bar, .log-body {
-  position: relative;
-  z-index: 1;
-}
-
 .header {
   display: flex;
   align-items: center;
