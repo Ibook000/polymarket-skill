@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>BTC 5m Strategy</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/static/style.css">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
 <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3"></script>
@@ -16,33 +16,38 @@
 
 <div class="header">
   <div class="header-left">
-    <div class="brand">BTC <span>5m Strategy</span></div>
+    <div class="brand"><span class="brand-icon">₿</span>BTC <span>5m Strategy</span></div>
     <div class="status stopped" id="badge">STOPPED</div>
   </div>
   <div class="header-right">
     <label class="toggle"><input type="checkbox" id="dryRun" checked> Dry Run</label>
-    <button class="btn btn-primary" id="btnStart" onclick="doStart()">Start</button>
-    <button class="btn btn-danger" id="btnStop" onclick="doStop()" disabled>Stop</button>
+    <button class="btn btn-primary" id="btnStart" onclick="doStart()">START</button>
+    <button class="btn btn-danger" id="btnStop" onclick="doStop()" disabled>STOP</button>
+  </div>
+</div>
+
+<div class="hero" id="hero">
+  <div class="hero-price">
+    <div class="label">BTC / USDT</div>
+    <div class="value" id="sPrice">--</div>
+  </div>
+  <div class="hero-divider"></div>
+  <div class="hero-stat">
+    <div class="label">Change</div>
+    <div class="value" id="sChange">--</div>
+  </div>
+  <div class="hero-divider"></div>
+  <div class="hero-stat">
+    <div class="label">UP</div>
+    <div class="value up" id="sUp">--</div>
+  </div>
+  <div class="hero-stat">
+    <div class="label">DOWN</div>
+    <div class="value down" id="sDown">--</div>
   </div>
 </div>
 
 <div class="stats">
-  <div class="stat">
-    <div class="stat-label">BTC Price</div>
-    <div class="stat-value" id="sPrice">--</div>
-  </div>
-  <div class="stat">
-    <div class="stat-label">Change</div>
-    <div class="stat-value" id="sChange">--</div>
-  </div>
-  <div class="stat">
-    <div class="stat-label">UP Odds</div>
-    <div class="stat-value green" id="sUp">--</div>
-  </div>
-  <div class="stat">
-    <div class="stat-label">DOWN Odds</div>
-    <div class="stat-value red" id="sDown">--</div>
-  </div>
   <div class="stat">
     <div class="stat-label">Signals</div>
     <div class="stat-value" id="sSignals">0</div>
@@ -50,6 +55,14 @@
   <div class="stat">
     <div class="stat-label">Positions</div>
     <div class="stat-value" id="sPositions">0</div>
+  </div>
+  <div class="stat">
+    <div class="stat-label">Win Rate</div>
+    <div class="stat-value green" id="sWinRate">--</div>
+  </div>
+  <div class="stat">
+    <div class="stat-label">Total P/L</div>
+    <div class="stat-value" id="sPnl">--</div>
   </div>
 </div>
 
@@ -85,18 +98,18 @@
       <canvas id="auditPie"></canvas>
       <div class="pie-center">
         <div class="num" id="auditRate">--</div>
-        <div class="lbl">Win Rate</div>
+        <div class="lbl">Win</div>
       </div>
     </div>
     <div class="audit-meta">
       <div class="audit-row">
-        <div class="audit-dot" style="background:var(--green)"></div>
-        <div class="audit-n c-g" id="auditWins">0</div>
+        <div class="audit-dot" style="background:var(--up)"></div>
+        <div class="audit-n c-up" id="auditWins">0</div>
         <div class="audit-lbl">Wins</div>
       </div>
       <div class="audit-row">
-        <div class="audit-dot" style="background:var(--red)"></div>
-        <div class="audit-n c-r" id="auditLosses">0</div>
+        <div class="audit-dot" style="background:var(--down)"></div>
+        <div class="audit-n c-down" id="auditLosses">0</div>
         <div class="audit-lbl">Losses</div>
       </div>
       <div class="audit-row">
@@ -115,7 +128,10 @@
 </div>
 
 <div class="tab-pane" id="tab-log">
-  <div class="log-bar"><button class="btn" onclick="clearLog()">Clear</button></div>
+  <div class="log-bar">
+    <span class="log-title">System Log</span>
+    <button class="btn" onclick="clearLog()">CLEAR</button>
+  </div>
   <div class="log-body" id="logBody"></div>
 </div>
 
